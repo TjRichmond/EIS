@@ -1,5 +1,5 @@
 # EIS
-Teensy 4.0 Operated CAN to TCP/IP Converter
+Teensy 4.0 + Wiznet 5500 Operated CAN to TCP/IP Converter
 Project will contain PCB design and custom firmware
 
 EIS board serves as a TCP Server listening for up to 8 clients to request telemetry data.
