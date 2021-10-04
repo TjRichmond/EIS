@@ -1,132 +1,156 @@
-/*
-  Web client
- This sketch connects to a website (http://www.google.com)
- using an Arduino Wiznet Ethernet shield.
- Circuit:
- * Ethernet shield attached to pins 10, 11, 12, 13
- created 18 Dec 2009
- by David A. Mellis
- modified 9 Apr 2012
- by Tom Igoe, based on work by Adrian McEwen
- */
-
 #include <SPI.h>
 #include <Ethernet.h>
 
-// Enter a MAC address for your controller below.
-// Newer Ethernet shields have a MAC address printed on a sticker on the shield
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+// The IP address will be dependent on your local network.
+// gateway and subnet are optional:
 
-// if you don't want to use DNS (and reduce your sketch size)
-// use the numeric IP instead of the name for the server:
-//IPAddress server(74,125,232,128);  // numeric IP for Google (no DNS)
-char server[] = "www.google.com";    // name address for Google (using DNS)
+byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32 }; // SCION2 in ASCII
 
-// Set the static IP address to use if the DHCP fails to assign
-IPAddress ip(192, 168, 0, 177);
-IPAddress myDns(192, 168, 0, 1);
+// Static Locate and Remote Addresses
+IPAddress ip(192, 168, 1, 177);
+IPAddress myDns(192, 168, 1, 1);
+IPAddress gateway(192, 168, 1, 1);
+IPAddress subnet(255, 255, 0, 0);
 
-// Initialize the Ethernet client library
-// with the IP address and port of the server
-// that you want to connect to (port 80 is default for HTTP):
-EthernetClient client;
+// Telemetry Data Port
+EthernetServer server(50003); 
 
-// Variables to measure the speed
-unsigned long beginMicros, endMicros;
-unsigned long byteCount = 0;
-bool printWebData = true;  // set to false for better speed measurement
+bool alreadyConnected = false; // whether or not the client was connected previously
+
+uint8_t recvState = 0; // indicates which byte is being handled from received packet
+
+
+struct recvMsg{
+  uint8_t start;
+  uint8_t sensor;
+  uint8_t variable;
+  uint8_t end;
+} lastRecvMsg;
 
 void setup() {
-  // You can use Ethernet.init(pin) to configure the CS pin
-  //Ethernet.init(10);  // Most Arduino shields
-  //Ethernet.init(5);   // MKR ETH shield
-  //Ethernet.init(0);   // Teensy 2.0
-  //Ethernet.init(20);  // Teensy++ 2.0
-  //Ethernet.init(15);  // ESP8266 with Adafruit Featherwing Ethernet
-  //Ethernet.init(33);  // ESP32 with Adafruit Featherwing Ethernet
+  Ethernet.begin(mac, ip, myDns, gateway, subnet);
 
   // Open serial communications and wait for port to open:
   Serial.begin(9600);
-  while (!Serial) {
+
+   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
-  // start the Ethernet connection:
-  Serial.println("Initialize Ethernet with DHCP:");
-  if (Ethernet.begin(mac) == 0) {
-    Serial.println("Failed to configure Ethernet using DHCP");
-    // Check for Ethernet hardware present
-    if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-      Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
-      while (true) {
-        delay(1); // do nothing, no point running without Ethernet hardware
-      }
+  // Check for Ethernet hardware present
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("Ethernet shield was not found.");
+    while (true) {
+      delay(1); // do nothing, no point running without Ethernet hardware
     }
-    if (Ethernet.linkStatus() == LinkOFF) {
-      Serial.println("Ethernet cable is not connected.");
-    }
-    // try to congifure using IP address instead of DHCP:
-    Ethernet.begin(mac, ip, myDns);
-  } else {
-    Serial.print("  DHCP assigned IP ");
-    Serial.println(Ethernet.localIP());
   }
-  // give the Ethernet shield a second to initialize:
-  delay(1000);
-  Serial.print("connecting to ");
-  Serial.print(server);
-  Serial.println("...");
 
-  // if you get a connection, report back via serial:
-  if (client.connect(server, 80)) {
-    Serial.print("connected to ");
-    Serial.println(client.remoteIP());
-    // Make a HTTP request:
-    client.println("GET /search?q=arduino HTTP/1.1");
-    client.println("Host: www.google.com");
-    client.println("Connection: close");
-    client.println();
-  } else {
-    // if you didn't get a connection to the server:
-    Serial.println("connection failed");
+  // Check for Ethernet Cable 
+  if (Ethernet.linkStatus() == LinkOFF) {
+    Serial.println("Ethernet cable is not connected.");
   }
-  beginMicros = micros();
+
+  // Begin listening for clients
+  server.begin();
+  Serial.print("Telemtry Data Server Address: ");
+  Serial.println(Ethernet.localIP());
 }
 
 void loop() {
-  // if there are incoming bytes available
-  // from the server, read them and print them:
-  int len = client.available();
-  if (len > 0) {
-    byte buffer[80];
-    if (len > 80) len = 80;
-    client.read(buffer, len);
-    if (printWebData) {
-      Serial.write(buffer, len); // show in the serial monitor (slows some boards)
+  // Check for any clients
+  EthernetClient client = server.available();
+  
+  if (client) {
+    if (!alreadyConnected) {
+      // clear out the input buffer:
+      client.flush();
+      Serial.println("We have a new client");
+      Serial.print("The client's IP: ");
+      Serial.print(client.remoteIP());
+      Serial.print(" Port: ");
+      Serial.println(client.remotePort());
+      alreadyConnected = true;
     }
-    byteCount = byteCount + len;
-  }
 
-  // if the server's disconnected, stop the client:
-  if (!client.connected()) {
-    endMicros = micros();
-    Serial.println();
-    Serial.println("disconnecting.");
-    client.stop();
-    Serial.print("Received ");
-    Serial.print(byteCount);
-    Serial.print(" bytes in ");
-    float seconds = (float)(endMicros - beginMicros) / 1000000.0;
-    Serial.print(seconds, 4);
-    float rate = (float)byteCount / seconds / 1000.0;
-    Serial.print(", rate = ");
-    Serial.print(rate);
-    Serial.print(" kbytes/second");
-    Serial.println();
+    if (client.available() > 0) {
+      // read the bytes incoming from the client:
 
-    // do nothing forevermore:
-    while (true) {
-      delay(1);
+      /*
+      Need to pase through bytes and make sense of them in a state machine
+      1. Start Byte: 0x00 
+      2. Sensor Byte: 0x10-0x30
+      3. Variable Byte: 0x40-x60
+      4. End Byte: 0xFF
+      */
+
+      uint8_t incomingByte = client.read();
+
+      switch(recvState)
+      {
+        case 0:
+          if(incomingByte == (uint8_t) 0x00)
+            recvState = 1; // transition to sensor byte state
+          break;
+
+        case 1:
+          if(incomingByte > (uint8_t) 0x00 && incomingByte < (uint8_t) 0xFF) {
+            lastRecvMsg.sensor = incomingByte;
+            recvState = 2; // transition to variable byte state
+          }
+          else {
+            recvState = 0;
+          }
+          break;
+
+        case 2:
+          if(incomingByte > (uint8_t) 0x00 && incomingByte < (uint8_t) 0xFF) {
+                      lastRecvMsg.variable = incomingByte;
+          recvState = 3; // transition to end byte state
+          }
+          else {
+            recvState = 0;
+          }
+          break;
+
+        case 3:
+          if(incomingByte == (uint8_t) 0xFF)
+            recvState = 4; // transition to send byte state
+          else {
+            recvState = 0;
+          }
+          break;
+
+        default:
+          recvState = 0;
+          break;
+      }
     }
+
+    if(recvState == 4)
+    {
+      switch(lastRecvMsg.sensor)
+      {
+        case (uint8_t) 0x10:
+          switch(lastRecvMsg.variable)
+          {
+            case (uint8_t) 0xEE:
+              // get variation of senor 0x10's data
+              // send it to client
+              break;
+          }
+          break;
+        
+        case (uint8_t) 0x12:
+          switch(lastRecvMsg.variable)
+          {
+            case (uint8_t) 0xEE:
+              // get variation of senor 0x10's data
+              // send it to client
+              break;
+          }
+          break;
+      }
+    }
+
   }
 }
