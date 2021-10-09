@@ -18,14 +18,16 @@ EthernetServer server(50003);
 bool alreadyConnected = false; // whether or not the client was connected previously
 
 uint8_t recvState = 0; // indicates which byte is being handled from received packet
-
+uint8_t recvCount = 0; // counts how many data bytes were received
+bool newPacket = false; // raised signal to signify new packet has fully arrived
 
 struct recvMsg{
   uint8_t start;
-  uint8_t sensor;
-  uint8_t variable;
+  uint8_t category;
+  uint8_t numData;
+  uint8_t data[10];
   uint8_t end;
-} lastRecvMsg;
+} newRecvMsg, lastRecvMsg;
 
 void setup() {
   Ethernet.begin(mac, ip, myDns, gateway, subnet);
@@ -74,17 +76,19 @@ void loop() {
 
     if (client.available() > 0) {
       // read the bytes incoming from the client:
-
+      Serial.println(client.available());
       /*
       Need to pase through bytes and make sense of them in a state machine
       1. Start Byte: 0x00 
-      2. Sensor Byte: 0x10-0x30
-      3. Variable Byte: 0x40-x60
-      4. End Byte: 0xFF
+      2. Category Byte: 0xSS
+      3. Data Size Byte: 0xNN
+      4. Data Bytes: 0xXX
+      5. End Byte: 0xFF
       */
 
       uint8_t incomingByte = client.read();
 
+      // state machine for receiving a packet of data
       switch(recvState)
       {
         case 0:
@@ -93,64 +97,49 @@ void loop() {
           break;
 
         case 1:
-          if(incomingByte > (uint8_t) 0x00 && incomingByte < (uint8_t) 0xFF) {
-            lastRecvMsg.sensor = incomingByte;
+            newRecvMsg.category = incomingByte;
             recvState = 2; // transition to variable byte state
-          }
-          else {
-            recvState = 0;
-          }
           break;
 
         case 2:
-          if(incomingByte > (uint8_t) 0x00 && incomingByte < (uint8_t) 0xFF) {
-                      lastRecvMsg.variable = incomingByte;
-          recvState = 3; // transition to end byte state
-          }
-          else {
-            recvState = 0;
+          {
+            newRecvMsg.numData = incomingByte;
+            recvState = 3; // transition to received data byte(s) state
           }
           break;
 
         case 3:
+          if(newRecvMsg.numData <= recvCount)
+          {
+            recvState = 4; // transition to end byte state
+            recvCount = 0;
+          }
+          else{
+            newRecvMsg.data[recvCount] = incomingByte;
+            recvCount++;
+          }
+          break;
+        
+        case 4:
           if(incomingByte == (uint8_t) 0xFF)
-            recvState = 4; // transition to send byte state
-          else {
-            recvState = 0;
+          {
+            newRecvMsg.end = incomingByte;
+            recvState = 0; // transition to start byte state
+            newPacket = true;
+            lastRecvMsg = newRecvMsg;
           }
           break;
 
         default:
-          recvState = 0;
+          recvState = 0; // transition to start byte state
           break;
       }
-    }
+    
 
-    if(recvState == 4)
-    {
-      switch(lastRecvMsg.sensor)
-      {
-        case (uint8_t) 0x10:
-          switch(lastRecvMsg.variable)
-          {
-            case (uint8_t) 0xEE:
-              // get variation of senor 0x10's data
-              // send it to client
-              break;
-          }
-          break;
-        
-        case (uint8_t) 0x12:
-          switch(lastRecvMsg.variable)
-          {
-            case (uint8_t) 0xEE:
-              // get variation of senor 0x10's data
-              // send it to client
-              break;
-          }
-          break;
-      }
-    }
+      // handler for querrying and gathering data to be transmitted
+      if(newPacket) {
 
-  }
+      }    
+    }
+ }
 }
