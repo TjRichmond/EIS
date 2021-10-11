@@ -1,10 +1,11 @@
 #include <SPI.h>
 #include <Ethernet.h>
+#include <FlexCAN.h>
 
 // The IP address will be dependent on your local network.
 // gateway and subnet are optional:
 
-byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32 }; // SCION2 in ASCII
+byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32}; // SCION2 in ASCII
 
 // Static Locate and Remote Addresses
 IPAddress ip(192, 168, 1, 177);
@@ -13,15 +14,18 @@ IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 0, 0);
 
 // Telemetry Data Port
-EthernetServer server(50003); 
+EthernetServer server(50003);
 
 bool alreadyConnected = false; // whether or not the client was connected previously
 
-uint8_t recvState = 0; // indicates which byte is being handled from received packet
-uint8_t recvCount = 0; // counts how many data bytes were received
+uint8_t recvState = 0;  // indicates which byte is being handled from received packet
+uint8_t recvCount = 0;  // counts how many data bytes were received
 bool newPacket = false; // raised signal to signify new packet has fully arrived
 
-struct recvMsg{
+uint8_t errorCode = 0;
+
+struct msg
+{
   uint8_t start;
   uint8_t category;
   uint8_t numData;
@@ -29,26 +33,37 @@ struct recvMsg{
   uint8_t end;
 } newRecvMsg, lastRecvMsg;
 
-void setup() {
+void CANHandler(void);
+void TCPHandler(msg &, msg &, EthernetClient *, bool *);
+void packetDecoder(msg &, EthernetClient *, bool *);
+void errorHandler(uint8_t *, EthernetClient *);
+
+void setup()
+{
+  // Establish Ethernet Server with Static IP
   Ethernet.begin(mac, ip, myDns, gateway, subnet);
 
   // Open serial communications and wait for port to open:
   Serial.begin(9600);
 
-   while (!Serial) {
+  while (!Serial)
+  {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
   // Check for Ethernet hardware present
-  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+  if (Ethernet.hardwareStatus() == EthernetNoHardware)
+  {
     Serial.println("Ethernet shield was not found.");
-    while (true) {
+    while (true)
+    {
       delay(1); // do nothing, no point running without Ethernet hardware
     }
   }
 
-  // Check for Ethernet Cable 
-  if (Ethernet.linkStatus() == LinkOFF) {
+  // Check for Ethernet Cable
+  if (Ethernet.linkStatus() == LinkOFF)
+  {
     Serial.println("Ethernet cable is not connected.");
   }
 
@@ -58,12 +73,15 @@ void setup() {
   Serial.println(Ethernet.localIP());
 }
 
-void loop() {
+void loop()
+{
   // Check for any clients
   EthernetClient client = server.available();
-  
-  if (client) {
-    if (!alreadyConnected) {
+
+  if (client)
+  {
+    if (!alreadyConnected)
+    {
       // clear out the input buffer:
       client.flush();
       Serial.println("We have a new client");
@@ -74,9 +92,35 @@ void loop() {
       alreadyConnected = true;
     }
 
-    if (client.available() > 0) {
-      // read the bytes incoming from the client:
-      Serial.println(client.available());
+    TCPHandler(newRecvMsg, lastRecvMsg, &client, &newPacket);
+    // handler for querrying and gathering data to be transmitted
+    
+    if (newPacket)
+    {
+      packetDecoder(lastRecvMsg, &client, &newPacket);
+    }
+
+    if (errorCode > 0)
+    {
+      errorHandler(&errorCode, &client);
+      Serial.println(errorCode, HEX);
+    }
+  }
+}
+
+
+void CANHandler()
+{
+  ;
+}
+
+void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *doneFlag)
+{
+
+    uint8_t rxBytesNum = client->available();
+    if (rxBytesNum > 0)
+    {
+
       /*
       Need to pase through bytes and make sense of them in a state machine
       1. Start Byte: 0x00 
@@ -86,60 +130,127 @@ void loop() {
       5. End Byte: 0xFF
       */
 
-      uint8_t incomingByte = client.read();
 
+      uint8_t incomingByte = client->read();
       // state machine for receiving a packet of data
-      switch(recvState)
+      switch (recvState)
       {
-        case 0:
-          if(incomingByte == (uint8_t) 0x00)
-            recvState = 1; // transition to sensor byte state
-          break;
+      case 0:
+        if (incomingByte == (uint8_t)0x00)
+        {
+          newPacket.start = incomingByte;
+          recvState = 1; // transition to sensor byte state
+          Serial.println("Start");
+        }
+        else
+        {
+          errorCode = 0x02;
+        }
+        break;
 
-        case 1:
-            newRecvMsg.category = incomingByte;
-            recvState = 2; // transition to variable byte state
-          break;
+      case 1:
+        newPacket.category = incomingByte;
+        recvState = 2; // transition to variable byte state
+        Serial.println("Command");
+        break;
 
-        case 2:
+      case 2:
+      {
+        newPacket.numData = incomingByte;
+        recvState = 3; // transition to received data byte(s) state
+        Serial.print("Number of Data Bytes: ");
+        Serial.println(newPacket.numData);
+      }
+      break;
+
+      case 3:
+        if (newPacket.numData - 1 <= recvCount)
+        {
+          newPacket.data[recvCount] = incomingByte;
+          Serial.print("Last Data Byte Section: ");
+          Serial.println((recvCount + 1));
+          if (rxBytesNum < 2)
           {
-            newRecvMsg.numData = incomingByte;
-            recvState = 3; // transition to received data byte(s) state
+            recvState = 0;
+            errorCode = 0x10;
           }
-          break;
-
-        case 3:
-          if(newRecvMsg.numData <= recvCount)
+          else
           {
             recvState = 4; // transition to end byte state
-            recvCount = 0;
           }
-          else{
-            newRecvMsg.data[recvCount] = incomingByte;
-            recvCount++;
-          }
-          break;
-        
-        case 4:
-          if(incomingByte == (uint8_t) 0xFF)
-          {
-            newRecvMsg.end = incomingByte;
-            recvState = 0; // transition to start byte state
-            newPacket = true;
-            lastRecvMsg = newRecvMsg;
-          }
-          break;
 
-        default:
+          recvCount = 0;
+        }
+        else
+        {
+          newPacket.data[recvCount] = incomingByte;
+          recvCount++;
+          Serial.print("Data Byte Section: ");
+          Serial.println(recvCount);
+        }
+        break;
+
+      case 4:
+        if (incomingByte == (uint8_t)0xFF)
+        {
+          newPacket.end = incomingByte;
           recvState = 0; // transition to start byte state
-          break;
+          *doneFlag = true;
+          lastRecvMsg = newPacket;
+          Serial.println("End");
+        }
+        break;
+
+      default:
+        recvState = 0; // transition to start byte state
+        break;
       }
-    
-
-      // handler for querrying and gathering data to be transmitted
-      if(newPacket) {
-
-      }    
     }
- }
+  }
+
+void packetDecoder(msg &packet, EthernetClient *client, bool *newPacket)
+{
+  switch (packet.category)
+  {
+  case 0x00:
+    // Check Alive Status of EPS
+    Serial.println("Check alive status of EPS");
+    client->print("Check alive status of EPS");
+    break;
+  case 0x01:
+    // Retrieve all data from EPS
+    Serial.println("Retrieve all EPS data");
+    client->print("EPS Data");
+    break;
+  default:
+    Serial.println("Command Byte Unable to Decode");
+    break;
+  }
+
+  Serial.println("Print the Received Data");
+  for (int i = 0; i < packet.numData; i++)
+    Serial.println(packet.data[i], HEX);
+
+  *newPacket = false;
+}
+
+void errorHandler(uint8_t *code, EthernetClient *client)
+{
+  /*
+   Function will be called to return any error cases.
+   The error code with a description will be printed to the serial and client
+  */
+  switch (*code)
+  {
+  case 0x02:
+    client->print("Error Code: 0x02 - Didn't Receive Start Byte '0x00'");
+    Serial.println("Error Code: 0x02 - Didn't Receive Start Byte '0x00'");
+    break;
+
+  case 0x10:
+    client->print("Error Code: 0x10 - Number of Data Bytes Oversize");
+    Serial.println("Error Code: 0x10 - Number of Data Bytes Oversize");
+    break;
+  }
+  *code = 0;
 }
