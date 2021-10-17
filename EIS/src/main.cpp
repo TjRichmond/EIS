@@ -2,8 +2,7 @@
 #include <Ethernet.h>
 #include <FlexCAN_T4.h>
 
-
-FlexCAN_T4 <CAN1, RX_SIZE_256, TX_SIZE_16> myCan;
+FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> myCan;
 
 CAN_message_t canMsg;
 
@@ -27,6 +26,8 @@ uint8_t recvState = 0;  // indicates which byte is being handled from received p
 uint8_t recvCount = 0;  // counts how many data bytes were received
 bool newPacket = false; // raised signal to signify new packet has fully arrived
 
+uint8_t canState = 0;
+
 uint8_t errorCode = 0;
 
 struct msg
@@ -47,6 +48,14 @@ void setup()
 {
   myCan.begin();
   myCan.setBaudRate(1000000);
+
+  canMsg.id = 0x1;
+
+  uint8_t data[1] = {23};
+
+  canMsg.buf[0] = data[0];
+
+  canMsg.len = 1;
 
   // Establish Ethernet Server with Static IP
   Ethernet.begin(mac, ip, myDns, gateway, subnet);
@@ -83,7 +92,6 @@ void setup()
 
 void loop()
 {
-
   CANHandler();
 
   // // Check for any clients
@@ -105,7 +113,7 @@ void loop()
 
   //   TCPHandler(newRecvMsg, lastRecvMsg, &client, &newPacket);
   //   // handler for querrying and gathering data to be transmitted
-    
+
   //   if (newPacket)
   //   {
   //     packetDecoder(lastRecvMsg, &client, &newPacket);
@@ -119,31 +127,76 @@ void loop()
   // }
 }
 
-
 void CANHandler()
 {
-  if ( myCan.read(canMsg) ) {
-    Serial.print("CAN1 "); 
-    Serial.print("MB: "); Serial.print(canMsg.mb);
-    Serial.print("  ID: 0x"); Serial.print(canMsg.id, HEX );
-    Serial.print("  EXT: "); Serial.print(canMsg.flags.extended );
-    Serial.print("  LEN: "); Serial.print(canMsg.len);
-    Serial.print(" DATA: ");
-    for ( uint8_t i = 0; i < 8; i++ ) {
-      Serial.print(canMsg.buf[i]); Serial.print(" ");
+  switch (canState)
+  {
+  case 0:
+    if (myCan.write(canMsg))
+    {
+      Serial.println("Sent message");
+      Serial.print("CAN1 ");
+      Serial.print("MB: ");
+      Serial.print(canMsg.mb);
+      Serial.print("  ID: 0x");
+      Serial.print(canMsg.id, HEX);
+      Serial.print("  EXT: ");
+      Serial.print(canMsg.flags.extended);
+      Serial.print("  LEN: ");
+      Serial.print(canMsg.len);
+      Serial.print(" DATA: ");
+      for (uint8_t i = 0; i < canMsg.len; i++)
+      {
+        Serial.print(canMsg.buf[i]);
+        Serial.print(" ");
+      }
+      Serial.print("  TS: ");
+      Serial.println(canMsg.timestamp);
+      canState = 1;
     }
-    Serial.print("  TS: "); Serial.println(canMsg.timestamp);
+    break;
+
+  case 1:
+    if (myCan.read(canMsg))
+    {
+      Serial.println("Received Message");
+      Serial.print("CAN1 ");
+      Serial.print("MB: ");
+      Serial.print(canMsg.mb);
+      Serial.print("  ID: 0x");
+      Serial.print(canMsg.id, HEX);
+      Serial.print("  EXT: ");
+      Serial.print(canMsg.flags.extended);
+      Serial.print("  LEN: ");
+      Serial.print(canMsg.len);
+      Serial.print(" DATA: ");
+      for (uint8_t i = 0; i < canMsg.len; i++)
+      {
+        Serial.print(canMsg.buf[i]);
+        Serial.print(" ");
+      }
+      Serial.print("  TS: ");
+      Serial.println(canMsg.timestamp);
+      if (canMsg.id == 0xAA)
+      {
+        canState = 2;
+      }
+    }
+    break;
+    
+  default:
+    break;
   }
 }
 
 void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *doneFlag)
 {
 
-    uint8_t rxBytesNum = client->available();
-    if (rxBytesNum > 0)
-    {
+  uint8_t rxBytesNum = client->available();
+  if (rxBytesNum > 0)
+  {
 
-      /*
+    /*
       Need to pase through bytes and make sense of them in a state machine
       1. Start Byte: 0x00 
       2. Category Byte: 0xSS
@@ -152,83 +205,82 @@ void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *d
       5. End Byte: 0xFF
       */
 
-
-      uint8_t incomingByte = client->read();
-      // state machine for receiving a packet of data
-      switch (recvState)
+    uint8_t incomingByte = client->read();
+    // state machine for receiving a packet of data
+    switch (recvState)
+    {
+    case 0:
+      if (incomingByte == (uint8_t)0x00)
       {
-      case 0:
-        if (incomingByte == (uint8_t)0x00)
-        {
-          newPacket.start = incomingByte;
-          recvState = 1; // transition to sensor byte state
-          Serial.println("Start");
-        }
-        else
-        {
-          errorCode = 0x02;
-        }
-        break;
-
-      case 1:
-        newPacket.category = incomingByte;
-        recvState = 2; // transition to variable byte state
-        Serial.println("Command");
-        break;
-
-      case 2:
+        newPacket.start = incomingByte;
+        recvState = 1; // transition to sensor byte state
+        Serial.println("Start");
+      }
+      else
       {
-        newPacket.numData = incomingByte;
-        recvState = 3; // transition to received data byte(s) state
-        Serial.print("Number of Data Bytes: ");
-        Serial.println(newPacket.numData);
+        errorCode = 0x02;
       }
       break;
 
-      case 3:
-        if (newPacket.numData - 1 <= recvCount)
-        {
-          newPacket.data[recvCount] = incomingByte;
-          Serial.print("Last Data Byte Section: ");
-          Serial.println((recvCount + 1));
-          if (rxBytesNum < 2)
-          {
-            recvState = 0;
-            errorCode = 0x10;
-          }
-          else
-          {
-            recvState = 4; // transition to end byte state
-          }
+    case 1:
+      newPacket.category = incomingByte;
+      recvState = 2; // transition to variable byte state
+      Serial.println("Command");
+      break;
 
-          recvCount = 0;
+    case 2:
+    {
+      newPacket.numData = incomingByte;
+      recvState = 3; // transition to received data byte(s) state
+      Serial.print("Number of Data Bytes: ");
+      Serial.println(newPacket.numData);
+    }
+    break;
+
+    case 3:
+      if (newPacket.numData - 1 <= recvCount)
+      {
+        newPacket.data[recvCount] = incomingByte;
+        Serial.print("Last Data Byte Section: ");
+        Serial.println((recvCount + 1));
+        if (rxBytesNum < 2)
+        {
+          recvState = 0;
+          errorCode = 0x10;
         }
         else
         {
-          newPacket.data[recvCount] = incomingByte;
-          recvCount++;
-          Serial.print("Data Byte Section: ");
-          Serial.println(recvCount);
+          recvState = 4; // transition to end byte state
         }
-        break;
 
-      case 4:
-        if (incomingByte == (uint8_t)0xFF)
-        {
-          newPacket.end = incomingByte;
-          recvState = 0; // transition to start byte state
-          *doneFlag = true;
-          lastRecvMsg = newPacket;
-          Serial.println("End");
-        }
-        break;
-
-      default:
-        recvState = 0; // transition to start byte state
-        break;
+        recvCount = 0;
       }
+      else
+      {
+        newPacket.data[recvCount] = incomingByte;
+        recvCount++;
+        Serial.print("Data Byte Section: ");
+        Serial.println(recvCount);
+      }
+      break;
+
+    case 4:
+      if (incomingByte == (uint8_t)0xFF)
+      {
+        newPacket.end = incomingByte;
+        recvState = 0; // transition to start byte state
+        *doneFlag = true;
+        lastRecvMsg = newPacket;
+        Serial.println("End");
+      }
+      break;
+
+    default:
+      recvState = 0; // transition to start byte state
+      break;
     }
   }
+}
 
 void packetDecoder(msg &packet, EthernetClient *client, bool *newPacket)
 {

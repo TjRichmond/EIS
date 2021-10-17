@@ -1,17 +1,50 @@
 #include <mbed.h>
 
-int main() {
+int main()
+{
 
-CAN can(PA_11, PA_12, 1000000);
+    CAN can(PA_11, PA_12, 1000000);
 
-char data[] = "Hello";
+    char data[1] = {0xEE};
 
-// CANMessage msg;
-// msg.id = 127;
-// msg.data = data;
-// msg.len = 1;
+    CANMessage msg;
 
-  while(1) {
-    can.write(CANMessage(127,data,8));
-  }
+    uint8_t canState = 0;
+
+    while(1) {
+
+        switch(canState) {
+            case 0:
+                if(can.read(msg)) {
+                    if(msg.id == 1) {
+                        printf("Received correct CAN request\n\r");
+
+                        for( uint8_t i = 0; i < msg.len; i++) {
+                            printf("%d ", msg.data[i]);
+                        }
+                        printf("\n\r");
+
+                        msg.id = 0xAA;
+                        msg.data[0] = data[0];
+                        msg.len = 1;
+                        canState = 1;
+                    }
+
+                    break;
+
+                case 1:
+                    if(can.write(msg)) {
+                        printf("Sent CAN Message\n\r");
+                        for( uint8_t i = 0; i < msg.len; i++) {
+                            printf("%d ", msg.data[i]);
+                        }
+                        canState = 2;
+                    }
+                    break;
+
+                default:
+                    break;
+                }
+        }
+    }
 }
