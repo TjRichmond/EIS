@@ -1,6 +1,11 @@
 #include <SPI.h>
 #include <Ethernet.h>
-#include <FlexCAN.h>
+#include <FlexCAN_T4.h>
+
+
+FlexCAN_T4 <CAN1, RX_SIZE_256, TX_SIZE_16> myCan;
+
+CAN_message_t canMsg;
 
 // The IP address will be dependent on your local network.
 // gateway and subnet are optional:
@@ -40,16 +45,19 @@ void errorHandler(uint8_t *, EthernetClient *);
 
 void setup()
 {
+  myCan.begin();
+  myCan.setBaudRate(1000000);
+
   // Establish Ethernet Server with Static IP
   Ethernet.begin(mac, ip, myDns, gateway, subnet);
 
   // Open serial communications and wait for port to open:
   Serial.begin(9600);
 
-  while (!Serial)
-  {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
+  // while (!Serial)
+  // {
+  //   ; // wait for serial port to connect. Needed for native USB port only
+  // }
 
   // Check for Ethernet hardware present
   if (Ethernet.hardwareStatus() == EthernetNoHardware)
@@ -75,43 +83,57 @@ void setup()
 
 void loop()
 {
-  // Check for any clients
-  EthernetClient client = server.available();
 
-  if (client)
-  {
-    if (!alreadyConnected)
-    {
-      // clear out the input buffer:
-      client.flush();
-      Serial.println("We have a new client");
-      Serial.print("The client's IP: ");
-      Serial.print(client.remoteIP());
-      Serial.print(" Port: ");
-      Serial.println(client.remotePort());
-      alreadyConnected = true;
-    }
+  CANHandler();
 
-    TCPHandler(newRecvMsg, lastRecvMsg, &client, &newPacket);
-    // handler for querrying and gathering data to be transmitted
+  // // Check for any clients
+  // EthernetClient client = server.available();
+
+  // if (client)
+  // {
+  //   if (!alreadyConnected)
+  //   {
+  //     // clear out the input buffer:
+  //     client.flush();
+  //     Serial.println("We have a new client");
+  //     Serial.print("The client's IP: ");
+  //     Serial.print(client.remoteIP());
+  //     Serial.print(" Port: ");
+  //     Serial.println(client.remotePort());
+  //     alreadyConnected = true;
+  //   }
+
+  //   TCPHandler(newRecvMsg, lastRecvMsg, &client, &newPacket);
+  //   // handler for querrying and gathering data to be transmitted
     
-    if (newPacket)
-    {
-      packetDecoder(lastRecvMsg, &client, &newPacket);
-    }
+  //   if (newPacket)
+  //   {
+  //     packetDecoder(lastRecvMsg, &client, &newPacket);
+  //   }
 
-    if (errorCode > 0)
-    {
-      errorHandler(&errorCode, &client);
-      Serial.println(errorCode, HEX);
-    }
-  }
+  //   if (errorCode > 0)
+  //   {
+  //     errorHandler(&errorCode, &client);
+  //     Serial.println(errorCode, HEX);
+  //   }
+  // }
 }
 
 
 void CANHandler()
 {
-  ;
+  if ( myCan.read(canMsg) ) {
+    Serial.print("CAN1 "); 
+    Serial.print("MB: "); Serial.print(canMsg.mb);
+    Serial.print("  ID: 0x"); Serial.print(canMsg.id, HEX );
+    Serial.print("  EXT: "); Serial.print(canMsg.flags.extended );
+    Serial.print("  LEN: "); Serial.print(canMsg.len);
+    Serial.print(" DATA: ");
+    for ( uint8_t i = 0; i < 8; i++ ) {
+      Serial.print(canMsg.buf[i]); Serial.print(" ");
+    }
+    Serial.print("  TS: "); Serial.println(canMsg.timestamp);
+  }
 }
 
 void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *doneFlag)
