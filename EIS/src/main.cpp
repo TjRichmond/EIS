@@ -2,9 +2,16 @@
 #include <Ethernet.h>
 #include <FlexCAN_T4.h>
 
+
+/* TODO
+Interrupt Timers for each Sensor PCB to request a pulse
+Look into DMA for Ethernet to SPI
+CAN DMA?
+*/
+
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> myCan;
 
-CAN_message_t canMsg;
+CAN_message_t canTXMsg, canRXMsg;
 
 // The IP address will be dependent on your local network.
 // gateway and subnet are optional:
@@ -26,36 +33,28 @@ uint8_t recvState = 0;  // indicates which byte is being handled from received p
 uint8_t recvCount = 0;  // counts how many data bytes were received
 bool newPacket = false; // raised signal to signify new packet has fully arrived
 
-uint8_t canState = 0;
-
 uint8_t errorCode = 0;
 
-struct msg
+struct tcpMsg
 {
   uint8_t start;
-  uint8_t category;
-  uint8_t numData;
-  uint8_t data[10];
+  uint8_t ID;
+  uint8_t control;
+  uint8_t data[8];
   uint8_t end;
-} newRecvMsg, lastRecvMsg;
+} newRecvMsg, lastRecvMsg, tcpTXMsg;
 
-void CANHandler(void);
-void TCPHandler(msg &, msg &, EthernetClient *, bool *);
-void packetDecoder(msg &, EthernetClient *, bool *);
+void TCPtoCAN(tcpMsg &, CAN_message_t &);
+void CANtoTCP(CAN_message_t &, tcpMsg &);
+void CANHandler(CAN_message_t &);
+void TCPListener(tcpMsg &, tcpMsg &, EthernetClient *, bool *);
+void TCPSender(tcpMsg &, EthernetClient *, bool *);
 void errorHandler(uint8_t *, EthernetClient *);
 
 void setup()
 {
   myCan.begin();
   myCan.setBaudRate(1000000);
-
-  canMsg.id = 0x1;
-
-  uint8_t data[1] = {23};
-
-  canMsg.buf[0] = data[0];
-
-  canMsg.len = 1;
 
   // Establish Ethernet Server with Static IP
   Ethernet.begin(mac, ip, myDns, gateway, subnet);
@@ -92,104 +91,130 @@ void setup()
 
 void loop()
 {
-  CANHandler();
+  // Check for any clients
+  EthernetClient client = server.available();
 
-  // // Check for any clients
-  // EthernetClient client = server.available();
+  if (client)
+  {
+    if (!alreadyConnected)
+    {
+      // clear out the input buffer:
+      client.flush();
+      Serial.println("We have a new client");
+      Serial.print("The client's IP: ");
+      Serial.print(client.remoteIP());
+      Serial.print(" Port: ");
+      Serial.println(client.remotePort());
+      alreadyConnected = true;
+    }
 
-  // if (client)
-  // {
-  //   if (!alreadyConnected)
-  //   {
-  //     // clear out the input buffer:
-  //     client.flush();
-  //     Serial.println("We have a new client");
-  //     Serial.print("The client's IP: ");
-  //     Serial.print(client.remoteIP());
-  //     Serial.print(" Port: ");
-  //     Serial.println(client.remotePort());
-  //     alreadyConnected = true;
-  //   }
+    TCPListener(newRecvMsg, lastRecvMsg, &client, &newPacket);
+    // handler for querrying and gathering data to be transmitted
 
-  //   TCPHandler(newRecvMsg, lastRecvMsg, &client, &newPacket);
-  //   // handler for querrying and gathering data to be transmitted
+    if (newPacket)
+    {
+      TCPtoCAN(lastRecvMsg, canRXMsg);
+      CANHandler(canRXMsg, canTXMsg);
+      CANtoTCP(canTXMsg, tcpTXMsg);
+      TCPSender(lastRecvMsg, &client, &newPacket);
+    }
 
-  //   if (newPacket)
-  //   {
-  //     packetDecoder(lastRecvMsg, &client, &newPacket);
-  //   }
-
-  //   if (errorCode > 0)
-  //   {
-  //     errorHandler(&errorCode, &client);
-  //     Serial.println(errorCode, HEX);
-  //   }
-  // }
+    if (errorCode > 0)
+    {
+      errorHandler(&errorCode, &client);
+      Serial.println(errorCode, HEX);
+    }
+  }
 }
 
-void CANHandler()
+void TCPtoCAN(tcpMsg &tcpPacket, CAN_message_t &canFrame) {
+  // Function that converts tcpPack into Can Frame
+   canFrame.id = tcpPacket.ID;
+   canFrame.len = (tcpPacket.control & 0x0F);
+   canFrame.flags.extended = (tcpPacket.control & 0x10);
+   canFrame.flags.remote = (tcpPacket.control & 0x80);
+   int i;
+   for(i = 0; i< canFrame.len; i++) {
+     canFrame.buf[i] = tcpPacket.data[i];
+   }
+}
+
+void CANtoTCP(CAN_message_t &canFrame, tcpMsg &tcpPacket) {
+  tcpPacket.ID = canFrame.id;
+  tcpPacket.control = tcpPacket.control | canFrame.len;
+  tcpPacket.control = tcpPacket.control | (canFrame.flags.extended << 4);
+  tcpPacket.control = tcpPacket.control | (canFrame.flags.remote << 7);
+  int i;
+  for(i = 0; i< canFrame.len; i++) {
+    tcpPacket.data[i] = canFrame.buf[i];
+  }
+}
+
+void CANHandler(CAN_message_t &canRXFrame, CAN_message_t &canTXFrame)
 {
+  uint8_t canState = 0;
+  // Replace canRXMsg with Argument
   switch (canState)
   {
   case 0:
-    if (myCan.write(canMsg))
+    if (myCan.write(canTXFrame))
     {
       Serial.println("Sent message");
       Serial.print("CAN1 ");
       Serial.print("MB: ");
-      Serial.print(canMsg.mb);
+      Serial.print(canTXFrame.mb);
       Serial.print("  ID: 0x");
-      Serial.print(canMsg.id, HEX);
+      Serial.print(canTXFrame.id, HEX);
       Serial.print("  EXT: ");
-      Serial.print(canMsg.flags.extended);
+      Serial.print(canTXFrame.flags.extended);
       Serial.print("  LEN: ");
-      Serial.print(canMsg.len);
+      Serial.print(canTXFrame.len);
       Serial.print(" DATA: ");
-      for (uint8_t i = 0; i < canMsg.len; i++)
+      for (uint8_t i = 0; i < canTXFrame.len; i++)
       {
-        Serial.print(canMsg.buf[i]);
+        Serial.print(canTXFrame.buf[i]);
         Serial.print(" ");
       }
       Serial.print("  TS: ");
-      Serial.println(canMsg.timestamp);
+      Serial.println(canTXFrame.timestamp);
       canState = 1;
     }
     break;
 
   case 1:
-    if (myCan.read(canMsg))
+    if (myCan.read(canRXFrame))
     {
       Serial.println("Received Message");
       Serial.print("CAN1 ");
       Serial.print("MB: ");
-      Serial.print(canMsg.mb);
+      Serial.print(canRXFrame.mb);
       Serial.print("  ID: 0x");
-      Serial.print(canMsg.id, HEX);
+      Serial.print(canRXFrame.id, HEX);
       Serial.print("  EXT: ");
-      Serial.print(canMsg.flags.extended);
+      Serial.print(canRXFrame.flags.extended);
       Serial.print("  LEN: ");
-      Serial.print(canMsg.len);
+      Serial.print(canRXFrame.len);
       Serial.print(" DATA: ");
-      for (uint8_t i = 0; i < canMsg.len; i++)
+      for (uint8_t i = 0; i < canRXFrame.len; i++)
       {
-        Serial.print(canMsg.buf[i]);
+        Serial.print(canRXFrame.buf[i]);
         Serial.print(" ");
       }
       Serial.print("  TS: ");
-      Serial.println(canMsg.timestamp);
-      if (canMsg.id == 0xAA)
+      Serial.println(canRXFrame.timestamp);
+      if (canRXFrame.id == 0xAA)
       {
         canState = 2;
       }
     }
     break;
-    
+
   default:
     break;
   }
 }
 
-void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *doneFlag)
+void TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *client, bool *doneFlag)
 {
 
   uint8_t rxBytesNum = client->available();
@@ -199,7 +224,7 @@ void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *d
     /*
       Need to pase through bytes and make sense of them in a state machine
       1. Start Byte: 0x00 
-      2. Category Byte: 0xSS
+      2. ID Byte: 0xSS
       3. Data Size Byte: 0xNN
       4. Data Bytes: 0xXX
       5. End Byte: 0xFF
@@ -223,22 +248,46 @@ void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *d
       break;
 
     case 1:
-      newPacket.category = incomingByte;
+      newPacket.ID = incomingByte;
       recvState = 2; // transition to variable byte state
       Serial.println("Command");
       break;
 
     case 2:
     {
-      newPacket.numData = incomingByte;
-      recvState = 3; // transition to received data byte(s) state
-      Serial.print("Number of Data Bytes: ");
-      Serial.println(newPacket.numData);
+      newPacket.control = incomingByte;
+
+      if (newPacket.control & 0x80)
+      {
+        if (newPacket.control & 0x10)
+        {
+          // Extended Frame Remote Command
+        }
+        else if((newPacket.control & 0x10) == 0x00)
+        {
+          // Standard Frame Remote Command
+          recvState = 4;
+        }
+      }
+      else if ((newPacket.control & 0x80) == 0x00)
+      {
+        if (newPacket.control & 0x10)
+        {
+          // Extended Frame Data Command
+        }
+        else if((newPacket.control & 0x10) == 0x00)
+        {
+          // Standard Frame Data Command
+          recvState = 3; // transition to received data byte(s) state
+          Serial.print("Number of Data Bytes: ");
+          Serial.println(newPacket.control);
+        }
+      }
     }
     break;
 
     case 3:
-      if (newPacket.numData - 1 <= recvCount)
+      if ((newPacket.control & 0x0F) - 1 <= recvCount)
       {
         newPacket.data[recvCount] = incomingByte;
         Serial.print("Last Data Byte Section: ");
@@ -282,9 +331,9 @@ void TCPHandler(msg &newPacket, msg &lastPacket, EthernetClient *client, bool *d
   }
 }
 
-void packetDecoder(msg &packet, EthernetClient *client, bool *newPacket)
+void TCPSender(tcpMsg &packet, EthernetClient *client, bool *newPacket)
 {
-  switch (packet.category)
+  switch (packet.ID)
   {
   case 0x00:
     // Check Alive Status of EPS
@@ -302,7 +351,7 @@ void packetDecoder(msg &packet, EthernetClient *client, bool *newPacket)
   }
 
   Serial.println("Print the Received Data");
-  for (int i = 0; i < packet.numData; i++)
+  for (int i = 0; i < packet.control; i++)
     Serial.println(packet.data[i], HEX);
 
   *newPacket = false;
