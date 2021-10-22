@@ -2,7 +2,6 @@
 #include <Ethernet.h>
 #include <FlexCAN_T4.h>
 
-
 /* TODO
 Interrupt Timers for each Sensor PCB to request a pulse
 Look into DMA for Ethernet to SPI
@@ -46,7 +45,7 @@ struct tcpMsg
 
 void TCPtoCAN(tcpMsg &, CAN_message_t &);
 void CANtoTCP(CAN_message_t &, tcpMsg &);
-void CANHandler(CAN_message_t &);
+void CANHandler(CAN_message_t &, CAN_message_t &);
 void TCPListener(tcpMsg &, tcpMsg &, EthernetClient *, bool *);
 void TCPSender(tcpMsg &, EthernetClient *, bool *);
 void errorHandler(uint8_t *, EthernetClient *);
@@ -116,7 +115,7 @@ void loop()
       TCPtoCAN(lastRecvMsg, canRXMsg);
       CANHandler(canRXMsg, canTXMsg);
       CANtoTCP(canTXMsg, tcpTXMsg);
-      TCPSender(lastRecvMsg, &client, &newPacket);
+      TCPSender(tcpTXMsg, &client, &newPacket);
     }
 
     if (errorCode > 0)
@@ -127,25 +126,29 @@ void loop()
   }
 }
 
-void TCPtoCAN(tcpMsg &tcpPacket, CAN_message_t &canFrame) {
+void TCPtoCAN(tcpMsg &tcpPacket, CAN_message_t &canFrame)
+{
   // Function that converts tcpPack into Can Frame
-   canFrame.id = tcpPacket.ID;
-   canFrame.len = (tcpPacket.control & 0x0F);
-   canFrame.flags.extended = (tcpPacket.control & 0x10);
-   canFrame.flags.remote = (tcpPacket.control & 0x80);
-   int i;
-   for(i = 0; i< canFrame.len; i++) {
-     canFrame.buf[i] = tcpPacket.data[i];
-   }
+  canFrame.id = tcpPacket.ID;
+  canFrame.len = (tcpPacket.control & 0x0F);
+  canFrame.flags.extended = (tcpPacket.control & 0x10);
+  canFrame.flags.remote = (tcpPacket.control & 0x80);
+  int i;
+  for (i = 0; i < canFrame.len; i++)
+  {
+    canFrame.buf[i] = tcpPacket.data[i];
+  }
 }
 
-void CANtoTCP(CAN_message_t &canFrame, tcpMsg &tcpPacket) {
+void CANtoTCP(CAN_message_t &canFrame, tcpMsg &tcpPacket)
+{
   tcpPacket.ID = canFrame.id;
   tcpPacket.control = tcpPacket.control | canFrame.len;
   tcpPacket.control = tcpPacket.control | (canFrame.flags.extended << 4);
   tcpPacket.control = tcpPacket.control | (canFrame.flags.remote << 7);
   int i;
-  for(i = 0; i< canFrame.len; i++) {
+  for (i = 0; i < canFrame.len; i++)
+  {
     tcpPacket.data[i] = canFrame.buf[i];
   }
 }
@@ -223,9 +226,9 @@ void TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *client, 
 
     /*
       Need to pase through bytes and make sense of them in a state machine
-      1. Start Byte: 0x00 
-      2. ID Byte: 0xSS
-      3. Data Size Byte: 0xNN
+      1. Start Byte: 0x00
+      2. ID Byte: 0xII
+      3. Control Byte: 0xRL
       4. Data Bytes: 0xXX
       5. End Byte: 0xFF
       */
@@ -250,7 +253,7 @@ void TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *client, 
     case 1:
       newPacket.ID = incomingByte;
       recvState = 2; // transition to variable byte state
-      Serial.println("Command");
+      Serial.println("ID");
       break;
 
     case 2:
@@ -263,10 +266,11 @@ void TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *client, 
         {
           // Extended Frame Remote Command
         }
-        else if((newPacket.control & 0x10) == 0x00)
+        else if ((newPacket.control & 0x10) == 0x00)
         {
           // Standard Frame Remote Command
           recvState = 4;
+          Serial.println("Remote Frame Byte");
         }
       }
       else if ((newPacket.control & 0x80) == 0x00)
@@ -275,7 +279,7 @@ void TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *client, 
         {
           // Extended Frame Data Command
         }
-        else if((newPacket.control & 0x10) == 0x00)
+        else if ((newPacket.control & 0x10) == 0x00)
         {
           // Standard Frame Data Command
           recvState = 3; // transition to received data byte(s) state
@@ -333,26 +337,43 @@ void TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *client, 
 
 void TCPSender(tcpMsg &packet, EthernetClient *client, bool *newPacket)
 {
-  switch (packet.ID)
+  uint8_t dataLen = packet.control & 0x0F;
+  uint8_t *sendBuf = new uint8_t;
+  sendBuf[0] = packet.start;
+  sendBuf[1] = packet.ID;
+  sendBuf[2] = packet.control;
+  if (dataLen > 0)
   {
-  case 0x00:
-    // Check Alive Status of EPS
-    Serial.println("Check alive status of EPS");
-    client->print("Check alive status of EPS");
-    break;
-  case 0x01:
-    // Retrieve all data from EPS
-    Serial.println("Retrieve all EPS data");
-    client->print("EPS Data");
-    break;
-  default:
-    Serial.println("Command Byte Unable to Decode");
-    break;
+    int i;
+    for (i = 0; i < dataLen; i++)
+    {
+      sendBuf[3 + i] = packet.data[i];
+    }
+    sendBuf[4 + i] = packet.end;
   }
+  else
+  {
+    sendBuf[3] = packet.end;
+  }
+  client->write(sendBuf, (size_t)(dataLen + 4));
+  delete sendBuf;
 
-  Serial.println("Print the Received Data");
-  for (int i = 0; i < packet.control; i++)
-    Serial.println(packet.data[i], HEX);
+  // switch (packet.ID)
+  // {
+  // case 0x00:
+  //   // Check Alive Status of EPS
+  //   Serial.println("Check alive status of EPS");
+  //   client->print("Check alive status of EPS");
+  //   break;
+  // case 0x01:
+  //   // Retrieve all data from EPS
+  //   Serial.println("Retrieve all EPS data");
+  //   client->print("EPS Data");
+  //   break;
+  // default:
+  //   Serial.println("Command Byte Unable to Decode");
+  //   break;
+  // }
 
   *newPacket = false;
 }
