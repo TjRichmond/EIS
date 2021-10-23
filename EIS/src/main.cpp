@@ -21,7 +21,7 @@ byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32}; // SCION2 in ASCII
 IPAddress ip(192, 168, 55, 177);
 IPAddress myDns(192, 168, 55, 1);
 IPAddress gateway(192, 168, 55, 1);
-IPAddress subnet(255, 255, 0, 0);
+IPAddress subnet(255, 255, 255, 0);
 
 // Telemetry Data Port
 EthernetServer server(50003);
@@ -36,11 +36,11 @@ uint8_t errorCode = 0;
 
 struct tcpMsg
 {
-  uint8_t start;
+  uint8_t start = 0x00;
   uint8_t ID;
   uint8_t control;
   uint8_t data[8];
-  uint8_t end;
+  uint8_t end = 0xFF;
 } newRecvMsg, lastRecvMsg, tcpTXMsg;
 
 void TCPtoCAN(tcpMsg &, CAN_message_t &);
@@ -114,7 +114,7 @@ void loop()
     {
       TCPtoCAN(lastRecvMsg, canRXMsg);
       CANHandler(canRXMsg, canTXMsg);
-      CANtoTCP(canTXMsg, tcpTXMsg);
+      CANtoTCP(canRXMsg, tcpTXMsg);
       TCPSender(tcpTXMsg, &client, &newPacket);
     }
 
@@ -157,63 +157,66 @@ void CANHandler(CAN_message_t &canRXFrame, CAN_message_t &canTXFrame)
 {
   uint8_t canState = 0;
   // Replace canRXMsg with Argument
-  switch (canState)
+  while (canState != 2)
   {
-  case 0:
-    if (myCan.write(canTXFrame))
+    switch (canState)
     {
-      Serial.println("Sent message");
-      Serial.print("CAN1 ");
-      Serial.print("MB: ");
-      Serial.print(canTXFrame.mb);
-      Serial.print("  ID: 0x");
-      Serial.print(canTXFrame.id, HEX);
-      Serial.print("  EXT: ");
-      Serial.print(canTXFrame.flags.extended);
-      Serial.print("  LEN: ");
-      Serial.print(canTXFrame.len);
-      Serial.print(" DATA: ");
-      for (uint8_t i = 0; i < canTXFrame.len; i++)
+    case 0:
+      if (myCan.write(canTXFrame))
       {
-        Serial.print(canTXFrame.buf[i]);
-        Serial.print(" ");
+        Serial.println("Sent message");
+        Serial.print("CAN1 ");
+        Serial.print("MB: ");
+        Serial.print(canTXFrame.mb);
+        Serial.print("  ID: 0x");
+        Serial.print(canTXFrame.id, HEX);
+        Serial.print("  EXT: ");
+        Serial.print(canTXFrame.flags.extended);
+        Serial.print("  LEN: ");
+        Serial.print(canTXFrame.len);
+        Serial.print(" DATA: ");
+        for (uint8_t i = 0; i < canTXFrame.len; i++)
+        {
+          Serial.print(canTXFrame.buf[i]);
+          Serial.print(" ");
+        }
+        Serial.print("  TS: ");
+        Serial.println(canTXFrame.timestamp);
+        canState = 1;
       }
-      Serial.print("  TS: ");
-      Serial.println(canTXFrame.timestamp);
-      canState = 1;
-    }
-    break;
+      break;
 
-  case 1:
-    if (myCan.read(canRXFrame))
-    {
-      Serial.println("Received Message");
-      Serial.print("CAN1 ");
-      Serial.print("MB: ");
-      Serial.print(canRXFrame.mb);
-      Serial.print("  ID: 0x");
-      Serial.print(canRXFrame.id, HEX);
-      Serial.print("  EXT: ");
-      Serial.print(canRXFrame.flags.extended);
-      Serial.print("  LEN: ");
-      Serial.print(canRXFrame.len);
-      Serial.print(" DATA: ");
-      for (uint8_t i = 0; i < canRXFrame.len; i++)
+    case 1:
+      if (myCan.read(canRXFrame))
       {
-        Serial.print(canRXFrame.buf[i]);
-        Serial.print(" ");
+        Serial.println("Received Message");
+        Serial.print("CAN1 ");
+        Serial.print("MB: ");
+        Serial.print(canRXFrame.mb);
+        Serial.print("  ID: 0x");
+        Serial.print(canRXFrame.id, HEX);
+        Serial.print("  EXT: ");
+        Serial.print(canRXFrame.flags.extended);
+        Serial.print("  LEN: ");
+        Serial.print(canRXFrame.len);
+        Serial.print(" DATA: ");
+        for (uint8_t i = 0; i < canRXFrame.len; i++)
+        {
+          Serial.print(canRXFrame.buf[i]);
+          Serial.print(" ");
+        }
+        Serial.print("  TS: ");
+        Serial.println(canRXFrame.timestamp);
+        if (canRXFrame.id == 0x00)
+        {
+          canState = 2;
+        }
       }
-      Serial.print("  TS: ");
-      Serial.println(canRXFrame.timestamp);
-      if (canRXFrame.id == 0x00)
-      {
-        canState = 2;
-      }
-    }
-    break;
+      break;
 
-  default:
-    break;
+    default:
+      break;
+    }
   }
 }
 
@@ -342,6 +345,8 @@ void TCPSender(tcpMsg &packet, EthernetClient *client, bool *newPacket)
   sendBuf[0] = packet.start;
   sendBuf[1] = packet.ID;
   sendBuf[2] = packet.control;
+  Serial.print("Packet Control Byte: ");
+  Serial.println(packet.control, HEX);
   if (dataLen > 0)
   {
     int i;
@@ -349,31 +354,16 @@ void TCPSender(tcpMsg &packet, EthernetClient *client, bool *newPacket)
     {
       sendBuf[3 + i] = packet.data[i];
     }
-    sendBuf[4 + i] = packet.end;
+    sendBuf[3 + i] = packet.end;
   }
   else
   {
     sendBuf[3] = packet.end;
   }
+  Serial.print("Packet End Byte: ");
+  Serial.println(packet.end, HEX);
   client->write(sendBuf, (size_t)(dataLen + 4));
   delete sendBuf;
-
-  // switch (packet.ID)
-  // {
-  // case 0x00:
-  //   // Check Alive Status of EPS
-  //   Serial.println("Check alive status of EPS");
-  //   client->print("Check alive status of EPS");
-  //   break;
-  // case 0x01:
-  //   // Retrieve all data from EPS
-  //   Serial.println("Retrieve all EPS data");
-  //   client->print("EPS Data");
-  //   break;
-  // default:
-  //   Serial.println("Command Byte Unable to Decode");
-  //   break;
-  // }
 
   *newPacket = false;
 }

@@ -1,7 +1,7 @@
 import socket
 
 # Configures the IPv4 and Port for CAN-Ethernet Server Interface
-HOST = '192.168.1.177'
+HOST = '192.168.55.177'
 PORT = 50003
 
 BUFFER = [b'\x00', b'\x00', b'\x80', b'\xFF']
@@ -44,7 +44,9 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
     for x in range(len(BUFFER)):
         s.send(BUFFER[x])
-    data = s.recv(1024)
+    data:bytes = s.recv(1024)
+    print('Received From Data: ', repr(data))
 
-print('Received', repr(data))
+for x in range(data[2]+4):
+    print(data[x])
 
