@@ -18,9 +18,9 @@ CAN_message_t canTXMsg, canRXMsg;
 byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32}; // SCION2 in ASCII
 
 // Static Locate and Remote Addresses
-IPAddress ip(192, 168, 1, 177);
-IPAddress myDns(192, 168, 1, 1);
-IPAddress gateway(192, 168, 1, 1);
+IPAddress ip(192, 168, 55, 177);
+IPAddress myDns(192, 168, 55, 1);
+IPAddress gateway(192, 168, 55, 1);
 IPAddress subnet(255, 255, 0, 0);
 
 // Telemetry Data Port
@@ -205,7 +205,7 @@ void CANHandler(CAN_message_t &canRXFrame, CAN_message_t &canTXFrame)
       }
       Serial.print("  TS: ");
       Serial.println(canRXFrame.timestamp);
-      if (canRXFrame.id == 0xAA)
+      if (canRXFrame.id == 0x00)
       {
         canState = 2;
       }
