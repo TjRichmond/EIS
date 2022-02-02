@@ -14,11 +14,11 @@ typedef unsigned char uint8_t;
 
 typedef struct tcpMsg
 {
-  uint8_t start = 0x00;
-  uint8_t ID;
-  uint8_t control;
-  uint8_t data[8];
-  uint8_t end = 0xFF;
+  uint8_t start = 0x00; // start byte
+  uint8_t ID;           // byte for identifying the message category
+  uint8_t control;      // byte for setting control bits (data length, remote/data)
+  uint8_t data[8];      // array for data section of message
+  uint8_t end = 0xFF;   // ending byte
 } tcpMsg;
 
 void TCPtoCAN(tcpMsg &, CAN_message_t &);
