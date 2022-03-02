@@ -1,10 +1,10 @@
 import socket
 
 # Configures the IPv4 and Port for CAN-Ethernet Server Interface
-HOST = '192.168.55.177'
-PORT = 50003
+# HOST = '192,168.55.177'      # Xavier IP '192.168.55.177'
+# PORT = 50003
 
-BUFFER = [b'\x00', b'\x00', b'\x80', b'\xFF']
+# BUFFER = [b'\x00', b'\x00', b'\x80', b'\xFF']
 
 """
 One Packet has the following format:
@@ -34,19 +34,29 @@ If sending a remote frame, Number of Data Bytes is b'\x80'
 and the Data Byte Section is omitted making the End Byte section next instead
 """
 
+HOST = '192.168.55.177'  # Standard loopback interface address (localhost)
+PORT = 50003        # Port to listen on (non-privileged ports are > 1023)
+
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    """
-    Connects to Teensy Server and sends the entire buffer one byte at a time.
-    Then waits to receive any data from the Server with a buffer up to 1024 bits.
-    Lastly it will print out the buffer for viewing
-    """
     s.connect((HOST, PORT))
+    s.sendall(b'Hello, world')
+    data = s.recv(1024)
 
-    for x in range(len(BUFFER)):
-        s.send(BUFFER[x])
-    data:bytes = s.recv(1024)
-    print('Received From Data: ', repr(data))
+print('Received', repr(data))
 
-for x in range(data[2]+4):
-    print(data[x])
+# with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+#     """
+#     Connects to Teensy Server and sends the entire buffer one byte at a time.
+#     Then waits to receive any data from the Server with a buffer up to 1024 bits.
+#     Lastly it will print out the buffer for viewing
+#     """
+#     s.connect((HOST, PORT))
+
+#     for x in range(len(BUFFER)):
+#         s.send(BUFFER[x])
+#     data:bytes = s.recv(1024)
+#     print('Received From Data: ', repr(data))
+
+# for x in range(data[2]+4):
+#     print(data[x])
 

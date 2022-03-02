@@ -28,6 +28,7 @@ tcpMsg newRecvMsg, lastRecvMsg, tcpTXMsg; // TCP Message Objects
 byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32}; // SCION2 in ASCII
 
 // Static Local and Remote Addresses
+// Xavier IP (192, 168, 55, 177)
 IPAddress ip(192, 168, 55, 177);
 IPAddress myDns(192, 168, 55, 1);
 IPAddress gateway(192, 168, 55, 1);
@@ -52,17 +53,17 @@ void setup()
   Ethernet.begin(mac, ip, myDns, gateway, subnet);
 
   // Open serial communications and wait for port to open:
-  // Serial.begin(9600);
+  Serial.begin(9600);
 
-  // while (!Serial)
-  // {
-  //   ; // wait for serial port to connect. Needed for native USB port only
-  // }
+  while (!Serial)
+  {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
 
   // Check for Ethernet hardware present
   if (Ethernet.hardwareStatus() == EthernetNoHardware)
   {
-    // Serial.println("Ethernet shield was not found.");
+     Serial.println("Ethernet shield was not found.");
     while (true)
     {
       delay(1); // do nothing, no point running without Ethernet hardware
@@ -72,13 +73,13 @@ void setup()
   // Check for Ethernet Cable
   if (Ethernet.linkStatus() == LinkOFF)
   {
-    // Serial.println("Ethernet cable is not connected.");
+     Serial.println("Ethernet cable is not connected.");
   }
 
   // Begin listening for clients
   server.begin();
-  // Serial.print("Telemtry Data Server Address: ");
-  // Serial.println(Ethernet.localIP());
+  Serial.print("Telemtry Data Server Address: ");
+  Serial.println(Ethernet.localIP());
 }
 
 void loop()
@@ -92,11 +93,11 @@ void loop()
     {
       // clear out the input buffer:
       client.flush();
-      // Serial.println("We have a new client");
-      // Serial.print("The client's IP: ");
-      // Serial.print(client.remoteIP());
-      // Serial.print(" Port: ");
-      // Serial.println(client.remotePort());
+      Serial.println("We have a new client");
+      Serial.print("The client's IP: ");
+      Serial.print(client.remoteIP());
+      Serial.print(" Port: ");
+      Serial.println(client.remotePort());
       alreadyConnected = true;
     }
 
@@ -114,7 +115,7 @@ void loop()
     if (errorCode > 0)
     {
       errorHandler(&errorCode, &client);
-      // Serial.println(errorCode, HEX);
+      Serial.println(errorCode, HEX);
     }
   }
 }
@@ -129,12 +130,12 @@ void errorHandler(uint8_t *code, EthernetClient *client)
   {
   case 0x02:
     client->print("Error Code: 0x02 - Didn't Receive Start Byte '0x00'");
-    // Serial.println("Error Code: 0x02 - Didn't Receive Start Byte '0x00'");
+    Serial.println("Error Code: 0x02 - Didn't Receive Start Byte '0x00'");
     break;
 
   case 0x10:
     client->print("Error Code: 0x10 - Number of Data Bytes Oversize");
-    // Serial.println("Error Code: 0x10 - Number of Data Bytes Oversize");
+    Serial.println("Error Code: 0x10 - Number of Data Bytes Oversize");
     break;
   }
   *code = 0;
