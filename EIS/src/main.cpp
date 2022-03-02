@@ -29,7 +29,7 @@ byte mac[] = {0x53, 0x43, 0x49, 0x4F, 0x4E, 0x32}; // SCION2 in ASCII
 
 // Static Local and Remote Addresses
 // Xavier IP (192, 168, 55, 177)
-IPAddress ip(192, 168, 55, 177);
+IPAddress ip(192, 168, 55, 200);
 IPAddress myDns(192, 168, 55, 1);
 IPAddress gateway(192, 168, 55, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -100,6 +100,8 @@ void loop()
       Serial.println(client.remotePort());
       alreadyConnected = true;
     }
+
+
 
     errorCode = TCPListener(newRecvMsg, lastRecvMsg, &client, &newPacket);
     // handler for querrying and gathering data to be transmitted

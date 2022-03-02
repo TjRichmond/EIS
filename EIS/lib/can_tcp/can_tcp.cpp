@@ -46,13 +46,13 @@ void CANtoTCP(CAN_message_t &canFrame, tcpMsg &tcpPacket)
     }
 }
 
-void CANHandler(FlexCAN_T4 <CAN1, RX_SIZE_256, TX_SIZE_16>&canBus, CAN_message_t &canRXFrame, CAN_message_t &canTXFrame)
+void CANHandler(FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> &canBus, CAN_message_t &canRXFrame, CAN_message_t &canTXFrame)
 {
     /*
     CANHandler writes a messsage to the CAN BUS and waits to listen for a CAN response
 
     :param canBus: Reference to CAN BUS I/O
-    :param canRXFrame: Reference to object for holding received CAN message 
+    :param canRXFrame: Reference to object for holding received CAN message
     :param canTXFrame: Reference to object for holding transmited CAN message
     */
 
@@ -62,60 +62,60 @@ void CANHandler(FlexCAN_T4 <CAN1, RX_SIZE_256, TX_SIZE_16>&canBus, CAN_message_t
         switch (canState)
         {
         case 0:
-        if (canBus.write(canTXFrame))
-        {
-            // Serial.println("Sent message");
-            // Serial.print("CAN1 ");
-            // Serial.print("MB: ");
-            // Serial.print(canTXFrame.mb);
-            // Serial.print("  ID: 0x");
-            // Serial.print(canTXFrame.id, HEX);
-            // Serial.print("  EXT: ");
-            // Serial.print(canTXFrame.flags.extended);
-            // Serial.print("  LEN: ");
-            // Serial.print(canTXFrame.len);
-            // Serial.print(" DATA: ");
-            // for (uint8_t i = 0; i < canTXFrame.len; i++)
-            // {
-            // Serial.print(canTXFrame.buf[i]);
-            // Serial.print(" ");
-            // }
-            // Serial.print("  TS: ");
-            // Serial.println(canTXFrame.timestamp);
-            canState = 1;
-        }
-        break;
+            if (canBus.write(canTXFrame))
+            {
+                // Serial.println("Sent message");
+                // Serial.print("CAN1 ");
+                // Serial.print("MB: ");
+                // Serial.print(canTXFrame.mb);
+                // Serial.print("  ID: 0x");
+                // Serial.print(canTXFrame.id, HEX);
+                // Serial.print("  EXT: ");
+                // Serial.print(canTXFrame.flags.extended);
+                // Serial.print("  LEN: ");
+                // Serial.print(canTXFrame.len);
+                // Serial.print(" DATA: ");
+                // for (uint8_t i = 0; i < canTXFrame.len; i++)
+                // {
+                // Serial.print(canTXFrame.buf[i]);
+                // Serial.print(" ");
+                // }
+                // Serial.print("  TS: ");
+                // Serial.println(canTXFrame.timestamp);
+                canState = 1;
+            }
+            break;
 
         case 1:
-        if (canBus.read(canRXFrame))
-        {
-            // Serial.println("Received Message");
-            // Serial.print("CAN1 ");
-            // Serial.print("MB: ");
-            // Serial.print(canRXFrame.mb);
-            // Serial.print("  ID: 0x");
-            // Serial.print(canRXFrame.id, HEX);
-            // Serial.print("  EXT: ");
-            // Serial.print(canRXFrame.flags.extended);
-            // Serial.print("  LEN: ");
-            // Serial.print(canRXFrame.len);
-            // Serial.print(" DATA: ");
-            // for (uint8_t i = 0; i < canRXFrame.len; i++)
-            // {
-            // Serial.print(canRXFrame.buf[i]);
-            // Serial.print(" ");
-            // }
-            // Serial.print("  TS: ");
-            // Serial.println(canRXFrame.timestamp);
-            if (canRXFrame.id == 0x00)
+            if (canBus.read(canRXFrame))
             {
-                canState = 2;
+                // Serial.println("Received Message");
+                // Serial.print("CAN1 ");
+                // Serial.print("MB: ");
+                // Serial.print(canRXFrame.mb);
+                // Serial.print("  ID: 0x");
+                // Serial.print(canRXFrame.id, HEX);
+                // Serial.print("  EXT: ");
+                // Serial.print(canRXFrame.flags.extended);
+                // Serial.print("  LEN: ");
+                // Serial.print(canRXFrame.len);
+                // Serial.print(" DATA: ");
+                // for (uint8_t i = 0; i < canRXFrame.len; i++)
+                // {
+                // Serial.print(canRXFrame.buf[i]);
+                // Serial.print(" ");
+                // }
+                // Serial.print("  TS: ");
+                // Serial.println(canRXFrame.timestamp);
+                if (canRXFrame.id == 0x00)
+                {
+                    canState = 2;
+                }
             }
-        }
-        break;
+            break;
 
         default:
-        break;
+            break;
         }
     }
 }
@@ -130,7 +130,7 @@ uint8_t TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *clien
     :param client: Reference to socket connection client
     :param doneFlag: Reference to signal for TCP recieve completion
 
-    :return error: 
+    :return error:
     0x10 - Number of Data Bytes Oversize
     0x02 - Didn't Receive Start Byte '0x00'
     0x00 - No errors
@@ -149,113 +149,112 @@ uint8_t TCPListener(tcpMsg &newPacket, tcpMsg &lastPacket, EthernetClient *clien
         5. End Byte: 0xFF
         */
 
-        uint8_t recvState = 0;  // indicates which byte is being handled from received packet
+        uint8_t recvState = 0; // indicates which byte is being handled from received packet
 
-        uint8_t recvCount = 0;  // counts how many data bytes were received
+        uint8_t recvCount = 0; // counts how many data bytes were received
 
         uint8_t incomingByte = client->read();
         // state machine for receiving a packet of data
         switch (recvState)
         {
         case 0:
-        if (incomingByte == (uint8_t)0x00)
-        {
-            newPacket.start = incomingByte;
-            recvState = 1; // transition to sensor byte state
-            Serial.println("Start");
-        }
-        else
-        {
-            return 0x02;
-        }
-        break;
+            if (incomingByte == (uint8_t)0x00)
+            {
+                newPacket.start = incomingByte;
+                recvState = 1; // transition to sensor byte state
+                Serial.println("Start");
+            }
+            else
+            {
+                return 0x02;
+            }
+            break;
 
         case 1:
-        newPacket.ID = incomingByte;
-        recvState = 2; // transition to variable byte state
-        Serial.println("ID");
-        break;
+            newPacket.ID = incomingByte;
+            recvState = 2; // transition to variable byte state
+            Serial.println("ID");
+            break;
 
         case 2:
         {
-        newPacket.control = incomingByte;
+            newPacket.control = incomingByte;
 
-        if (newPacket.control & 0x80)
-        {
-            if (newPacket.control & 0x10)
+            if (newPacket.control & 0x80)
             {
-            // Extended Frame Remote Command
+                if (newPacket.control & 0x10)
+                {
+                    // Extended Frame Remote Command
+                }
+                else if ((newPacket.control & 0x10) == 0x00)
+                {
+                    // Standard Frame Remote Command
+                    recvState = 4;
+                    Serial.println("Remote Frame Byte");
+                }
             }
-            else if ((newPacket.control & 0x10) == 0x00)
+            else if ((newPacket.control & 0x80) == 0x00)
             {
-            // Standard Frame Remote Command
-            recvState = 4;
-            Serial.println("Remote Frame Byte");
+                if (newPacket.control & 0x10)
+                {
+                    // Extended Frame Data Command
+                }
+                else if ((newPacket.control & 0x10) == 0x00)
+                {
+                    // Standard Frame Data Command
+                    recvState = 3; // transition to received data byte(s) state
+                    Serial.print("Number of Data Bytes: ");
+                    Serial.println(newPacket.control);
+                }
             }
-        }
-        else if ((newPacket.control & 0x80) == 0x00)
-        {
-            if (newPacket.control & 0x10)
-            {
-            // Extended Frame Data Command
-            }
-            else if ((newPacket.control & 0x10) == 0x00)
-            {
-            // Standard Frame Data Command
-            recvState = 3; // transition to received data byte(s) state
-            Serial.print("Number of Data Bytes: ");
-            Serial.println(newPacket.control);
-            }
-        }
         }
         break;
 
         case 3:
-        if ((newPacket.control & 0x0F) - 1 <= recvCount)
-        {
-            newPacket.data[recvCount] = incomingByte;
-            Serial.print("Last Data Byte Section: ");
-            Serial.println((recvCount + 1));
-            if (rxBytesNum < 2)
+            if ((newPacket.control & 0x0F) - 1 <= recvCount)
             {
-            recvState = 0;
-            return 0x10;
+                newPacket.data[recvCount] = incomingByte;
+                Serial.print("Last Data Byte Section: ");
+                Serial.println((recvCount + 1));
+                if (rxBytesNum < 2)
+                {
+                    recvState = 0;
+                    return 0x10;
+                }
+                else
+                {
+                    recvState = 4; // transition to end byte state
+                }
+
+                recvCount = 0;
             }
             else
             {
-            recvState = 4; // transition to end byte state
+                newPacket.data[recvCount] = incomingByte;
+                recvCount++;
+                Serial.print("Data Byte Section: ");
+                Serial.println(recvCount);
             }
-
-            recvCount = 0;
-        }
-        else
-        {
-            newPacket.data[recvCount] = incomingByte;
-            recvCount++;
-            Serial.print("Data Byte Section: ");
-            Serial.println(recvCount);
-        }
-        break;
+            break;
 
         case 4:
-        if (incomingByte == (uint8_t)0xFF)
-        {
-            newPacket.end = incomingByte;
-            recvState = 0; // transition to start byte state
-            *doneFlag = true;
-            lastPacket = newPacket;
-            Serial.println("End");
-        }
-        break;
+            if (incomingByte == (uint8_t)0xFF)
+            {
+                newPacket.end = incomingByte;
+                recvState = 0; // transition to start byte state
+                *doneFlag = true;
+                lastPacket = newPacket;
+                Serial.println("End");
+            }
+            break;
 
         default:
-        recvState = 0; // transition to start byte state
-        break;
+            recvState = 0; // transition to start byte state
+            break;
         }
     }
 
     return 0x00;
-
 }
 
 void TCPSender(tcpMsg &packet, EthernetClient *client, bool *newPacket)
@@ -282,7 +281,7 @@ void TCPSender(tcpMsg &packet, EthernetClient *client, bool *newPacket)
         int i;
         for (i = 0; i < dataLen; i++)
         {
-        sendBuf[3 + i] = packet.data[i];
+            sendBuf[3 + i] = packet.data[i];
         }
         sendBuf[3 + i] = packet.end;
     }
